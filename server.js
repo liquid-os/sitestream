@@ -40,7 +40,11 @@ function rewriteUrls(html) {
 // Main proxy endpoint
 app.use('/proxy', async (req, res) => {
   try {
-    const targetPath = req.path === '/' ? '' : req.path;
+    // Extract path and query string
+    let targetPath = req.path;
+    if (targetPath === '/') {
+      targetPath = '';
+    }
     const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
     const targetUrl = `${TARGET_SITE}${targetPath}${queryString}`;
     
@@ -55,16 +59,26 @@ app.use('/proxy', async (req, res) => {
         'Accept-Language': 'en-US,en;q=0.9',
         'Referer': TARGET_SITE,
         'Origin': TARGET_SITE,
+        'Accept-Encoding': 'gzip, deflate, br',
         ...(req.headers.cookie ? { 'Cookie': req.headers.cookie } : {}),
       },
       data: req.body,
       responseType: 'arraybuffer',
       maxRedirects: 5,
+      timeout: 30000, // 30 second timeout
       validateStatus: () => true, // Accept all status codes
     });
 
     // Set response headers
     const contentType = response.headers['content-type'] || '';
+    
+    // Remove problematic headers that might block iframe loading
+    const headersToRemove = ['x-frame-options', 'content-security-policy', 'x-content-type-options'];
+    headersToRemove.forEach(header => {
+      if (response.headers[header]) {
+        delete response.headers[header];
+      }
+    });
     
     // Copy relevant headers
     if (response.headers['content-type']) {
@@ -85,7 +99,7 @@ app.use('/proxy', async (req, res) => {
       const rewrittenHtml = rewriteUrls(html);
       res.setHeader('Content-Length', Buffer.byteLength(rewrittenHtml));
       res.status(response.status).send(rewrittenHtml);
-    } else if (contentType.includes('text/css') || contentType.includes('application/javascript')) {
+    } else if (contentType.includes('text/css') || contentType.includes('application/javascript') || contentType.includes('text/javascript')) {
       // Rewrite URLs in CSS and JS files too
       const content = Buffer.from(response.data).toString('utf-8');
       const rewritten = rewriteUrls(content);
@@ -98,7 +112,12 @@ app.use('/proxy', async (req, res) => {
     }
   } catch (error) {
     console.error('Proxy error:', error.message);
-    res.status(500).json({ error: 'Failed to proxy request', message: error.message });
+    console.error('Stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to proxy request', 
+      message: error.message,
+      details: error.response ? `Status: ${error.response.status}` : 'No response from target'
+    });
   }
 });
 

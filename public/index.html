@@ -179,18 +179,43 @@
             // Create new iframe
             const iframe = document.createElement('iframe');
             iframe.src = url;
+            iframe.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
+            
+            let loadTimeout;
+            let hasLoaded = false;
+            
             iframe.onload = () => {
-                document.getElementById('status').textContent = 'Loaded';
-                container.innerHTML = '';
-                container.appendChild(iframe);
+                if (loadTimeout) clearTimeout(loadTimeout);
+                if (!hasLoaded) {
+                    hasLoaded = true;
+                    document.getElementById('status').textContent = 'Loaded';
+                    container.innerHTML = '';
+                    container.appendChild(iframe);
+                }
             };
+            
             iframe.onerror = () => {
+                if (loadTimeout) clearTimeout(loadTimeout);
                 document.getElementById('status').textContent = 'Error loading page';
-                container.innerHTML = '<div class="loading">Error loading page. Please try again.</div>';
+                container.innerHTML = '<div class="loading" style="color: #d32f2f;">Error loading page. Please check the console or try again.</div>';
             };
+
+            // Set timeout for loading
+            loadTimeout = setTimeout(() => {
+                if (!hasLoaded) {
+                    document.getElementById('status').textContent = 'Loading timeout - page may still be loading';
+                    // Still show the iframe in case it's loading slowly
+                    container.innerHTML = '';
+                    container.appendChild(iframe);
+                }
+            }, 15000); // 15 second timeout
 
             currentIframe = iframe;
             document.getElementById('status').textContent = 'Loading...';
+            
+            // Pre-append iframe to start loading
+            container.innerHTML = '';
+            container.appendChild(iframe);
         }
 
         function loadPage() {
@@ -211,7 +236,22 @@
 
         // Load homepage on initial load
         window.addEventListener('DOMContentLoaded', () => {
-            loadPage();
+            // Test if proxy is working first
+            fetch('/proxy')
+                .then(response => {
+                    if (response.ok) {
+                        loadPage();
+                    } else {
+                        document.getElementById('status').textContent = 'Proxy error: ' + response.status;
+                        document.getElementById('iframeContainer').innerHTML = 
+                            '<div class="loading" style="color: #d32f2f;">Failed to connect to proxy. Status: ' + response.status + '</div>';
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('status').textContent = 'Connection error';
+                    document.getElementById('iframeContainer').innerHTML = 
+                        '<div class="loading" style="color: #d32f2f;">Failed to connect: ' + error.message + '</div>';
+                });
         });
 
         // Allow Enter key to navigate
